@@ -131,6 +131,8 @@ class Analyzer:
 
         if self.verbose:
             print('num frames loaded:', len(self.frame_times_s))
+            print('total recording time s:', self.frame_times_s[-1])
+            print('average frames per second:', len(self.frame_times_s) / self.frame_times_s[-1])
 
     def __generate_batch_data(self):
         """
