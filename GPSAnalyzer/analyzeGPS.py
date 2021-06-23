@@ -62,13 +62,16 @@ class Analyzer:
         self.num_detected_laps = 0
         self.lap_average_speed_kmh = []
 
-    def load_data_and_generate_graphs(self, geojson_file, verbose=True):
+    def load_data_and_generate_graphs(self, geojson_file, out_directory, verbose=True):
         """
         Function that loads data from the given file and manages all analysis steps
         """
 
         # Store required parameters
         self.geojson_file = geojson_file
+        self.out_directory = out_directory
+        if not os.path.isdir(self.out_directory):
+            os.mkdir(self.out_directory)
 
         # Store optional parameters
         self.verbose = verbose
@@ -327,7 +330,7 @@ class Analyzer:
             title='Driving speed')
         ax.set_xticks([x / 2.0 for x in range(int(max(accumulated_batch_times_min)) * 2 + 1)])
         ax.legend()
-        fig.savefig('driving_speed.png', bbox_inches='tight')
+        fig.savefig(os.path.join(self.out_directory, 'driving_speed.png'), bbox_inches='tight')
 
     def __plot_lap_trajectories(self):
         """
@@ -376,15 +379,15 @@ class Analyzer:
             orientation='horizontal',
             ticks=[max_recorded_speed * i / 5 for i in range(6)],
             label='km/h')
-        fig.savefig('lap_contours.png', bbox_inches='tight')
+        fig.savefig(os.path.join(self.out_directory, 'lap_contours.png'), bbox_inches='tight')
 
 
 if __name__ == '__main__':
 
     # Check command line arguments
-    if len(sys.argv) != 2:
-        print('Usage: %s <geojson_file>' % os.path.basename(__file__))
+    if len(sys.argv) != 3:
+        print('Usage: %s <geojson_file> <out_directory>' % os.path.basename(__file__))
         exit(1)
 
     analyzer = Analyzer()
-    analyzer.load_data_and_generate_graphs(sys.argv[1])
+    analyzer.load_data_and_generate_graphs(sys.argv[1], sys.argv[2])
