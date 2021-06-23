@@ -39,17 +39,23 @@ class Analyzer:
     Class responsible for encapsulating all analysis functionality
     """
 
-    def __init__(self):
+    def __init__(self, geojson_file, out_directory, verbose=True):
         """
         Declares all needed values
         """
+        # Store required parameters
+        self.geojson_file = geojson_file
+        self.out_directory = out_directory
 
-        # Frame variables
+        # Store optional parameters
+        self.verbose = verbose
+
+        # Declare frame variables
         self.frame_data = {}
         self.frame_times_s = []
         self.num_frames = 0
 
-        # Batch variables
+        # Declare batch variables
         self.batch_times_s = []
         self.batch_dists_m = []
         self.batch_geo_locations = []
@@ -57,24 +63,18 @@ class Analyzer:
         self.accumulated_batch_times_s = []
         self.num_batches = 0
 
-        # Lap variables
+        # Declare lap variables
         self.lap_batches = []
         self.num_detected_laps = 0
         self.lap_average_speed_kmh = []
 
-    def load_data_and_generate_graphs(self, geojson_file, out_directory, verbose=True):
+    def load_data_and_generate_graphs(self):
         """
         Function that loads data from the given file and manages all analysis steps
         """
-
-        # Store required parameters
-        self.geojson_file = geojson_file
-        self.out_directory = out_directory
+        # Create output directory
         if not os.path.isdir(self.out_directory):
             os.mkdir(self.out_directory)
-
-        # Store optional parameters
-        self.verbose = verbose
 
         # Load and digest original per frame data
         self.__prepare_frame_data()
@@ -389,5 +389,5 @@ if __name__ == '__main__':
         print('Usage: %s <geojson_file> <out_directory>' % os.path.basename(__file__))
         exit(1)
 
-    analyzer = Analyzer()
-    analyzer.load_data_and_generate_graphs(sys.argv[1], sys.argv[2])
+    analyzer = Analyzer(sys.argv[1], sys.argv[2])
+    analyzer.load_data_and_generate_graphs()
