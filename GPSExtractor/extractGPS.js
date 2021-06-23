@@ -4,7 +4,7 @@ const fs = require('fs');
 
 /**
  * Function for loading big files, see readme for more info
- * 
+ *
  * @param {string} path Path to the file to be loaded
  */
 function bufferAppender(path) {
@@ -26,20 +26,17 @@ function bufferAppender(path) {
 
 // Parse command line arguments
 
-var args = process.argv.slice(2);
+var argv = require('minimist')(process.argv.slice(2));
 
-const gpxParam = '--gpx';
-const createGpx = args.includes(gpxParam);
-const jsonParam = '--json';
-const createJson = args.includes(jsonParam);
-const geojsonParam = '--geojson';
-const createGeojson = args.includes(geojsonParam);
+const gpxOutFile = argv.gpx;
+const jsonOutFile = argv.json;
+const geojsonOutFile = argv.geojson;
 
-const files = args.filter(arg => arg != gpxParam && arg != jsonParam && arg != geojsonParam);
+const files = argv._;
 
 // Check command line arguments validity
-if (!(createGpx || createJson || createGeojson) || files.length < 2) {
-    console.log(`Usage: ${require('path').basename(__filename)} [${gpxParam}] [${jsonParam}] [${geojsonParam}] <video_file_name> <video_file_name>...`);
+if ((!gpxOutFile && !jsonOutFile && !geojsonOutFile) || files.length < 1) {
+    console.log(`Usage: ${require('path').basename(__filename)} [--gpx <gpx_out_file>] [--json <json_out_file>] [--geojson <geojson_out_file>] <video_file_name> <video_file_name>...`);
     process.exit(1);
 }
 
@@ -50,36 +47,36 @@ try {
     for (const file of files) {
         promises.push(gpmfExtract(bufferAppender(file)));
     }
-    
+
     // When all files are loaded, generate the output
     Promise.all(promises).then(extracted => {
-       
-        if (createGpx)
+
+        if (gpxOutFile)
         {
             goproTelemetry(extracted, { preset: "gpx" }).then(telemetry => {
-                fs.writeFileSync("extracted_path.gpx", telemetry);
+                fs.writeFileSync(gpxOutFile, telemetry);
                 console.log('Telemetry saved as gpx');
             });
         }
-        
-        if (createJson)
+
+        if (jsonOutFile)
         {
             goproTelemetry(extracted, {}).then(telemetry => {
-                fs.writeFileSync("extracted_path.json", JSON.stringify(telemetry, null, 2));
+                fs.writeFileSync(jsonOutFile, JSON.stringify(telemetry, null, 2));
                 console.log('Telemetry saved as json');
             });
         }
-        
-        if (createGeojson)
+
+        if (geojsonOutFile)
         {
             goproTelemetry(extracted, { preset: "geojson" }).then(telemetry => {
-                fs.writeFileSync("extracted_path.geojson", JSON.stringify(telemetry, null, 2));
+                fs.writeFileSync(geojsonOutFile, JSON.stringify(telemetry, null, 2));
                 console.log('Telemetry saved as geojson');
             });
         }
-        
+
     });
-    
-} catch (err) {	
+
+} catch (err) {
     console.error(err);
 }
