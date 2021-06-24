@@ -39,6 +39,41 @@ class Analyzer:
     Class responsible for encapsulating all analysis functionality
     """
 
+    # Measure unit conversion values
+
+    @staticmethod
+    def convert(input, conversion_multiplier):
+        """
+        Applies conversion multiplier to the input
+        If input is list, returns a list with each input element multiplied
+        If input is variable, returns multipled value
+        """
+        if type(input) == list:
+            return list(map(lambda x: x * conversion_multiplier, input))
+        else:
+            return input * conversion_multiplier
+
+    @staticmethod
+    def mps_to_kmh(input):
+        """
+        Converts input in meters per second to kilometers per hour
+        """
+        return Analyzer.convert(input, 60.0 * 60.0 / 1000.0)
+
+    @staticmethod
+    def ms_to_s(input):
+        """
+        Converts input in milliseconds to seconds
+        """
+        return Analyzer.convert(input, 1.0 / 1000.0)
+
+    @staticmethod
+    def s_to_min(input):
+        """
+        Converts input in seconds to minutes
+        """
+        return Analyzer.convert(input, 1.0 / 60.0)
+
     def __init__(self, geojson_file, out_directory, batch_size=4, verbose=True):
         """
         Declares all needed values
@@ -125,9 +160,7 @@ class Analyzer:
             print('data.properties.RelativeMicroSec:', self.frame_data['properties']['RelativeMicroSec'][:10])
 
         # Convert time data to seconds
-        self.frame_times_s = []
-        for micros in self.frame_data['properties']['RelativeMicroSec']:
-            self.frame_times_s.append(micros / 1000.0)
+        self.frame_times_s = Analyzer.ms_to_s(self.frame_data['properties']['RelativeMicroSec'])
 
         if self.verbose:
             print('num frames loaded:', len(self.frame_times_s))
@@ -173,7 +206,7 @@ class Analyzer:
             avg = lambda values: sum(values) / len(values)
             self.batch_geo_locations.append(
                 list(map(avg, zip(*self.frame_data['geometry']['coordinates'][i:i + self.batch_size]))))
-            self.batch_speeds_kmh.append(dist_m / time_s / 1000.0 * 60.0 * 60.0)
+            self.batch_speeds_kmh.append(Analyzer.mps_to_kmh(dist_m / time_s))
         self.num_batches = len(self.batch_speeds_kmh)
         self.accumulated_batch_times_s = [sum(self.batch_times_s[:i + 1]) for i in range(self.num_batches)]
 
@@ -224,8 +257,8 @@ class Analyzer:
             drive_end_batch -= 1
 
         if self.verbose:
-            print('driving starts at min:', sum(self.batch_times_s[:drive_start_batch]) / 60.0)
-            print('driving ends at min:', sum(self.batch_times_s[:drive_end_batch]) / 60.0)
+            print('driving starts at min:', Analyzer.s_to_min(sum(self.batch_times_s[:drive_start_batch])))
+            print('driving ends at min:', Analyzer.s_to_min(sum(self.batch_times_s[:drive_end_batch])))
 
         self.batch_times_s = self.batch_times_s[drive_start_batch:drive_end_batch]
         self.batch_dists_m = self.batch_dists_m[drive_start_batch:drive_end_batch]
@@ -237,7 +270,7 @@ class Analyzer:
         if self.verbose:
             print('num batches after trimming:', self.num_batches)
             print('total dist m:', sum(self.batch_dists_m))
-            print('total time min:', sum(self.batch_times_s) / 60.0)
+            print('total time min:', Analyzer.s_to_min(sum(self.batch_times_s)))
             print('average speed km/h:', sum(self.batch_speeds_kmh) / self.num_batches)
 
     def __detect_laps(self):
@@ -288,10 +321,9 @@ class Analyzer:
         # Calculate average speeds for each lap
         self.lap_average_speed_kmh = []
         for lap in range(self.num_detected_laps):
-            self.lap_average_speed_kmh.append(
+            self.lap_average_speed_kmh.append(Analyzer.mps_to_kmh(
                 sum(self.batch_dists_m[self.lap_batches[lap]:self.lap_batches[lap + 1]]) / \
-                (self.accumulated_batch_times_s[self.lap_batches[lap + 1]] - self.accumulated_batch_times_s[self.lap_batches[lap]]) / \
-                1000.0 * 60.0 * 60.0)
+                (self.accumulated_batch_times_s[self.lap_batches[lap + 1]] - self.accumulated_batch_times_s[self.lap_batches[lap]])))
 
         if self.verbose:
             accumulated_batch_times_min = [x / 60.0 for x in self.accumulated_batch_times_s]
@@ -310,7 +342,7 @@ class Analyzer:
             print()
             print('__plot_speed_time_graph')
 
-        accumulated_batch_times_min = [x / 60.0 for x in self.accumulated_batch_times_s]
+        accumulated_batch_times_min = Analyzer.s_to_min(self.accumulated_batch_times_s)
         lap_average_speed_kmh_graph = []
         for i in range(self.num_detected_laps):
             lap_average_speed_kmh_graph += [self.lap_average_speed_kmh[i] for _ in range(self.lap_batches[i + 1] - self.lap_batches[i])]
