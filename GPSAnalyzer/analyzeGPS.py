@@ -8,32 +8,6 @@ import matplotlib.pyplot as plt
 import sys
 
 
-def geo_to_meters(geoloc1, geoloc2):
-    """
-    Return the distance between two geo locations given as
-    geoloc = [longitude, latitude]
-    in meters
-    """
-
-    # Approximate radius of earth in meters
-    R = 6373000.0
-
-    lat1 = radians(geoloc1[1])
-    lon1 = radians(geoloc1[0])
-    lat2 = radians(geoloc2[1])
-    lon2 = radians(geoloc2[0])
-
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-
-    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
-
-    distance = R * c
-
-    return distance
-
-
 class Analyzer:
     """
     Class responsible for encapsulating all analysis functionality
@@ -73,6 +47,32 @@ class Analyzer:
         Converts input in seconds to minutes
         """
         return Analyzer.convert(input, 1.0 / 60.0)
+
+    @staticmethod
+    def geo_to_meters(geoloc1, geoloc2):
+        """
+        Return the distance between two geo locations given as
+        geoloc = [longitude, latitude]
+        in meters
+        """
+
+        # Approximate radius of earth in meters
+        R = 6373000.0
+
+        lat1 = radians(geoloc1[1])
+        lon1 = radians(geoloc1[0])
+        lat2 = radians(geoloc2[1])
+        lon2 = radians(geoloc2[0])
+
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+
+        a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+        distance = R * c
+
+        return distance
 
     def __init__(self, geojson_file, out_directory, batch_size=4, verbose=True):
         """
@@ -198,7 +198,7 @@ class Analyzer:
             self.batch_times_s.append(time_s)
             dist_m = 0
             for j in range(0, self.batch_size):
-                dist_m += geo_to_meters(
+                dist_m += Analyzer.geo_to_meters(
                     self.frame_data['geometry']['coordinates'][i + j],
                     self.frame_data['geometry']['coordinates'][i + j + 1])
             self.batch_dists_m.append(dist_m)
@@ -293,7 +293,7 @@ class Analyzer:
                 possible_first_batch = 0
                 while len(self.lap_batches) == 0 and \
                     self.accumulated_batch_times_s[possible_first_batch] + min_possible_lap_time_s < self.accumulated_batch_times_s[curr_batch]:
-                        if geo_to_meters(
+                        if Analyzer.geo_to_meters(
                             self.batch_geo_locations[possible_first_batch],
                             self.batch_geo_locations[curr_batch]) < lap_detection_min_distance_m:
                                 self.lap_batches.append(possible_first_batch)
@@ -304,7 +304,7 @@ class Analyzer:
                     curr_batch += 1
             else:
                 # Not the first lap, check if current batch completes a later lap
-                if geo_to_meters(
+                if Analyzer.geo_to_meters(
                     self.batch_geo_locations[self.lap_batches[1]],
                     self.batch_geo_locations[curr_batch]) < lap_detection_min_distance_m:
                         self.lap_batches.append(curr_batch)
@@ -378,10 +378,10 @@ class Analyzer:
         max_lat_batch = lats.index(max(lats))
         min_lon_batch = lons.index(min(lons))
         max_lon_batch = lons.index(max(lons))
-        d_lat = geo_to_meters(
+        d_lat = Analyzer.geo_to_meters(
             [lats[min_lat_batch], lons[min_lat_batch]],
             [lats[max_lat_batch], lons[min_lat_batch]])
-        d_lon = geo_to_meters(
+        d_lon = Analyzer.geo_to_meters(
             [lats[min_lon_batch], lons[min_lon_batch]],
             [lats[min_lon_batch], lons[max_lon_batch]])
         aspect_ratio = d_lat / d_lon
