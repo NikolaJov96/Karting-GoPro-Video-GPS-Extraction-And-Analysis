@@ -13,8 +13,6 @@ class Analyzer:
     Class responsible for encapsulating all analysis functionality
     """
 
-    # Measure unit conversion values
-
     @staticmethod
     def convert(input, conversion_multiplier):
         """
@@ -74,10 +72,26 @@ class Analyzer:
 
         return distance
 
-    def __init__(self, geojson_file, out_directory, batch_size=4, max_btb_speed_diff_kmh = 7.0, verbose=True):
+    def __init__(
+            self,
+            geojson_file,
+            out_directory,
+            batch_size=4,
+            max_btb_speed_diff_kmh = 7.0,
+            min_driving_speed_kmh = 10.0,
+            min_possible_lap_time_s = 30.0,
+            lap_detection_min_distance_m = 4.0,
+            verbose=True):
         """
         Initializes parameters and declares all needed values
-        max_btb_speed_diff_kmh: Maximum acceptable speed difference between batches, before it's considered a GPS error
+        param batch_size: Number of raw frames to be combined in order to calculate speeds
+        param max_btb_speed_diff_kmh: Maximum acceptable speed difference between batches,
+                                      before it's considered a GPS error
+        param min_driving_speed_kmh: Speed under which movement is not considered driving
+        param min_possible_lap_time_s: Time smaller than any possible lap time,
+                                       but big enough to gain some distance from the starting position
+        param lap_detection_min_distance_m: Minimal distance between two points to be considered a lap closure,
+                                            as small as possible, while covering the width of track
         """
         # Store required parameters
         self.geojson_file = geojson_file
@@ -86,6 +100,9 @@ class Analyzer:
         # Store optional parameters
         self.batch_size = batch_size
         self.max_btb_speed_diff_kmh = max_btb_speed_diff_kmh
+        self.min_driving_speed_kmh = min_driving_speed_kmh
+        self.min_possible_lap_time_s = min_possible_lap_time_s
+        self.lap_detection_min_distance_m = lap_detection_min_distance_m
         self.verbose = verbose
 
         # Declare frame variables
@@ -275,25 +292,25 @@ class Analyzer:
             print()
             print('__trim_non_driving')
 
-        min_driving_speed_kmh = 10.0
-
+        # Find the first and the last batch with speed over the driving threshold
         drive_start_batch = 0
-        while self.batch_speeds_kmh[drive_start_batch] < min_driving_speed_kmh:
+        while self.batch_speeds_kmh[drive_start_batch] < self.min_driving_speed_kmh:
             drive_start_batch += 1
         drive_end_batch = self.num_batches - 1
-        while self.batch_speeds_kmh[drive_end_batch] < min_driving_speed_kmh:
+        while self.batch_speeds_kmh[drive_end_batch] < self.min_driving_speed_kmh:
             drive_end_batch -= 1
 
         if self.verbose:
             print('driving starts at min:', Analyzer.s_to_min(sum(self.batch_times_s[:drive_start_batch])))
             print('driving ends at min:', Analyzer.s_to_min(sum(self.batch_times_s[:drive_end_batch + 1])))
 
+        # Recalculate batch descriptors to describe only the driving part
         self.num_batches = drive_end_batch - drive_start_batch + 1
         self.batch_times_s = self.batch_times_s[drive_start_batch:drive_end_batch + 1]
         self.batch_dists_m = self.batch_dists_m[drive_start_batch:drive_end_batch + 1]
         self.batch_geo_locations = self.batch_geo_locations[drive_start_batch:drive_end_batch + 1]
         self.batch_speeds_kmh = self.batch_speeds_kmh[drive_start_batch:drive_end_batch + 1]
-        self.accumulated_batch_times_s = [sum(self.batch_times_s[:i]) for i in range(self.num_batches)]
+        self.accumulated_batch_times_s = [sum(self.batch_times_s[:i + 1]) for i in range(self.num_batches)]
 
         if self.verbose:
             print('num batches after trimming:', self.num_batches)
@@ -303,44 +320,67 @@ class Analyzer:
 
     def __detect_laps(self):
         """
-        Finds all batches with the position at the first point on the trajectory
-        that has been visited more than once
+        Finds all batche ids that mark starts and ends of laps
         """
         if self.verbose:
             print()
             print('__detect_laps')
 
-        min_possible_lap_time_s = 60.0
-        lap_detection_min_distance_m = 10.0
-
         self.lap_batches = []
-        curr_batch = next(x[0] for x in enumerate(self.accumulated_batch_times_s) if x[1] > min_possible_lap_time_s)
+
+        # Quick function that finds the id of the first batch that ends after
+        #   the current time moment with added minimal possible lap time
+        # If not found, returns the total number of batches (last batch id + 1)
+        batch_min_lap_time_away_from = \
+            lambda current_time: next((x[0] for x in enumerate(self.accumulated_batch_times_s) if x[1] > \
+                current_time + self.min_possible_lap_time_s), \
+                    self.num_batches)
+
+        # Start looking for the ending of the first lap by checking each batch distance from the starting batches
+        # Make sure to skip enough distance the beginning
+        # Find a batch that is min possible lap time away from the start
+        curr_batch = batch_min_lap_time_away_from(0)
+
         while curr_batch < self.num_batches:
             if len(self.lap_batches) == 0:
                 # No laps detected yet, check if the current batch completes the first lap
+
+                # Check distances from all previous batches, unless they were closer than min possible lap time,
+                #   or the lap completion is detected
                 possible_first_batch = 0
                 while len(self.lap_batches) == 0 and \
-                    self.accumulated_batch_times_s[possible_first_batch] + min_possible_lap_time_s < self.accumulated_batch_times_s[curr_batch]:
+                    self.accumulated_batch_times_s[possible_first_batch] + self.min_possible_lap_time_s < \
+                        self.accumulated_batch_times_s[curr_batch]:
+
+                        # If the distance between geolocations of two batches is close enough, record a lap
                         if Analyzer.geo_to_meters(
                             self.batch_geo_locations[possible_first_batch],
-                            self.batch_geo_locations[curr_batch]) < lap_detection_min_distance_m:
+                            self.batch_geo_locations[curr_batch]) < self.lap_detection_min_distance_m:
+                                # Add both batches marking the start and the end of the first lap
                                 self.lap_batches.append(possible_first_batch)
                                 self.lap_batches.append(curr_batch)
-                                curr_batch = next(x[0] for x in enumerate(self.accumulated_batch_times_s) if x[1] > self.accumulated_batch_times_s[curr_batch] + min_possible_lap_time_s)
+                                # Since a lap has been completed just, we can skip min possible lap time
+                                curr_batch = batch_min_lap_time_away_from(self.accumulated_batch_times_s[curr_batch])
+
                         possible_first_batch += 1
+
                 if len(self.lap_batches) == 0:
+                    # Still no laps found, try with the next batch
                     curr_batch += 1
             else:
-                # Not the first lap, check if current batch completes a later lap
+                # First lap already completed, check if current batch completes a later lap
                 if Analyzer.geo_to_meters(
                     self.batch_geo_locations[self.lap_batches[1]],
-                    self.batch_geo_locations[curr_batch]) < lap_detection_min_distance_m:
+                    self.batch_geo_locations[curr_batch]) < self.lap_detection_min_distance_m:
+
+                        # Add just the end of this lap to the list of lap batches
                         self.lap_batches.append(curr_batch)
-                        curr_batch = next(
-                            (x[0] for x in enumerate(self.accumulated_batch_times_s) if x[1] > self.accumulated_batch_times_s[curr_batch] + min_possible_lap_time_s),
-                            self.num_batches)
+                        # Skip min lap time again
+                        curr_batch = batch_min_lap_time_away_from(self.accumulated_batch_times_s[curr_batch])
+
                 else:
                     curr_batch += 1
+
         self.num_detected_laps = len(self.lap_batches) - 1
 
         if self.verbose:
@@ -351,13 +391,18 @@ class Analyzer:
         for lap in range(self.num_detected_laps):
             self.lap_average_speed_kmh.append(Analyzer.mps_to_kmh(
                 sum(self.batch_dists_m[self.lap_batches[lap]:self.lap_batches[lap + 1]]) / \
-                (self.accumulated_batch_times_s[self.lap_batches[lap + 1]] - self.accumulated_batch_times_s[self.lap_batches[lap]])))
+                (self.accumulated_batch_times_s[self.lap_batches[lap + 1]] -
+                    self.accumulated_batch_times_s[self.lap_batches[lap]])))
 
         if self.verbose:
-            accumulated_batch_times_min = [x / 60.0 for x in self.accumulated_batch_times_s]
+            accumulated_batch_times_min = Analyzer.s_to_min(self.accumulated_batch_times_s)
             print('lap #, time and avg speed')
             for i in range(self.num_detected_laps):
-                print(i + 1, accumulated_batch_times_min[self.lap_batches[i + 1]] - accumulated_batch_times_min[self.lap_batches[i]], self.lap_average_speed_kmh[i])
+                print(
+                    i + 1,
+                    accumulated_batch_times_min[self.lap_batches[i + 1]] -
+                        accumulated_batch_times_min[self.lap_batches[i]],
+                    self.lap_average_speed_kmh[i])
 
     def __plot_speed_time_graph(self):
         """
