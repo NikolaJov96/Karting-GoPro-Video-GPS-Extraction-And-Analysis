@@ -121,7 +121,8 @@ class Analyzer:
         # Declare lap variables
         self.lap_batches = []
         self.num_detected_laps = 0
-        self.lap_average_speed_kmh = []
+        self.lap_average_speeds_kmh = []
+        self.lap_times_s = []
 
     def load_data_and_generate_graphs(self):
         """
@@ -386,23 +387,25 @@ class Analyzer:
         if self.verbose:
             print('num detected full laps:', self.num_detected_laps)
 
-        # Calculate average speeds for each lap
-        self.lap_average_speed_kmh = []
+        # Calculate average speeds and time for each lap
+        self.lap_average_speeds_kmh = []
+        self.lap_times_s = []
         for lap in range(self.num_detected_laps):
-            self.lap_average_speed_kmh.append(Analyzer.mps_to_kmh(
+
+            self.lap_average_speeds_kmh.append(Analyzer.mps_to_kmh(
                 sum(self.batch_dists_m[self.lap_batches[lap]:self.lap_batches[lap + 1]]) / \
                 (self.accumulated_batch_times_s[self.lap_batches[lap + 1]] -
                     self.accumulated_batch_times_s[self.lap_batches[lap]])))
 
+            self.lap_times_s.append(
+                self.accumulated_batch_times_s[self.lap_batches[lap + 1]] -
+                self.accumulated_batch_times_s[self.lap_batches[lap]])
+
         if self.verbose:
-            accumulated_batch_times_min = Analyzer.s_to_min(self.accumulated_batch_times_s)
-            print('lap #, time and avg speed')
+            lap_average_times_min = Analyzer.s_to_min(self.lap_times_s)
+            print('lap #, time min and avg speed kmh')
             for i in range(self.num_detected_laps):
-                print(
-                    i + 1,
-                    accumulated_batch_times_min[self.lap_batches[i + 1]] -
-                        accumulated_batch_times_min[self.lap_batches[i]],
-                    self.lap_average_speed_kmh[i])
+                print(i + 1, lap_average_times_min[i], self.lap_average_speeds_kmh[i])
 
     def __plot_speed_time_graph(self):
         """
@@ -417,29 +420,49 @@ class Analyzer:
 
         accumulated_batch_times_min = Analyzer.s_to_min(self.accumulated_batch_times_s)
 
+        lap_average_times_min = Analyzer.s_to_min(self.lap_times_s)
+
         lap_average_speed_kmh_graph = []
         for i in range(self.num_detected_laps):
-            lap_average_speed_kmh_graph += [self.lap_average_speed_kmh[i] for _ in range(self.lap_batches[i + 1] - self.lap_batches[i])]
+            lap_average_speed_kmh_graph += \
+                [self.lap_average_speeds_kmh[i] for _ in range(self.lap_batches[i + 1] - self.lap_batches[i])]
 
         # Prepare the figure
         fig, ax = plt.subplots(1, 1, figsize=(28, 7))
         ax.set_title('Driving speed')
-        ax.set_xlabel('time (min)')
+        ax.set_xlabel('time and lap duration (min)')
         ax.set_ylabel('speed (km/h)')
         ax.grid(axis='y', linestyle='--')
 
         # Plot speed line
         ax.plot(accumulated_batch_times_min, self.batch_speeds_kmh, color='red', label='Speed')
         # Plot horizontal average speed lines for each lap
-        ax.plot(accumulated_batch_times_min[self.lap_batches[0]:self.lap_batches[-1]], lap_average_speed_kmh_graph, color='blue', label='Average speed per lap')
+        ax.plot(
+            accumulated_batch_times_min[self.lap_batches[0]:self.lap_batches[-1]],
+            lap_average_speed_kmh_graph,
+            color='blue',
+            label='Average speed per lap')
         # Plot vertical lines marking individual laps
         for lap_batch in self.lap_batches:
             plt.axvline(x=accumulated_batch_times_min[lap_batch], color='gray', linestyle='--')
 
-        # Define axis values
+        # Define axis limits
         ax.set_ylim((0, max(self.batch_speeds_kmh) * 1.1))
         ax.set_xlim((accumulated_batch_times_min[0], accumulated_batch_times_min[-1]))
-        ax.set_xticks([x / 2.0 for x in range(int(max(accumulated_batch_times_min)) * 2 + 1)])
+
+        # Print absolute lap times on the x axis
+        lap_positions = [accumulated_batch_times_min[lap_batch] for lap_batch in self.lap_batches]
+        ax.set_xticks(lap_positions)
+
+        # Add each lap duration under the lap graph
+        for i in range(self.num_detected_laps):
+            ax.text(
+                (lap_positions[i] + lap_positions[i + 1]) / 2,
+                1,
+                '%.3f' % lap_average_times_min[i],
+                horizontalalignment='center',
+                verticalalignment='bottom',
+                fontsize=13)
 
         ax.legend()
         fig.savefig(os.path.join(self.out_directory, 'driving_speed.png'), bbox_inches='tight')
@@ -476,9 +499,12 @@ class Analyzer:
         fig, ax = plt.subplots(self.num_detected_laps, figsize=(11, 4 * self.num_detected_laps))
         for i in range(self.num_detected_laps):
             # Cut out the part of the data for the current lap
-            x_coords = [(x - min(lons)) / (max(lons) - min(lons)) for x in lons[self.lap_batches[i]:self.lap_batches[i + 1]]]
-            y_coords = [(x - min(lats)) / (max(lats) - min(lats)) for x in lats[self.lap_batches[i]:self.lap_batches[i + 1]]]
-            colors = cm.jet([x / max_recorded_speed for x in self.batch_speeds_kmh[self.lap_batches[i]:self.lap_batches[i + 1]]])
+            x_coords = \
+                [(x - min(lons)) / (max(lons) - min(lons)) for x in lons[self.lap_batches[i]:self.lap_batches[i + 1]]]
+            y_coords = \
+                [(x - min(lats)) / (max(lats) - min(lats)) for x in lats[self.lap_batches[i]:self.lap_batches[i + 1]]]
+            colors = cm.jet(
+                [x / max_recorded_speed for x in self.batch_speeds_kmh[self.lap_batches[i]:self.lap_batches[i + 1]]])
             # Plot out the current lap
             ax[i].set_title('Lap %d' % (i + 1))
             ax[i].scatter(x_coords, y_coords, color=colors)
