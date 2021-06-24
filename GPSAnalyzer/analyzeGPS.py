@@ -179,6 +179,7 @@ class Analyzer:
         # Round number of frames to be divisible by the batch size
         self.num_frames = ((len(self.frame_times_s) - 1) // self.batch_size) * self.batch_size
         self.frame_times_s = self.frame_times_s[:self.num_frames + 1]
+        self.num_batches = self.num_frames // self.batch_size
 
         if self.verbose:
             print('num frames left after batch size trim:', self.num_frames)
@@ -194,20 +195,28 @@ class Analyzer:
 
         # Group frames into batches with parameterized size and calculate speeds
         for i in range(0, self.num_frames, self.batch_size):
+
+            # Calculate batch duration
             time_s = self.frame_times_s[i + self.batch_size] - self.frame_times_s[i]
             self.batch_times_s.append(time_s)
+
+            # Calculate distance covered during the batch
             dist_m = 0
             for j in range(0, self.batch_size):
                 dist_m += Analyzer.geo_to_meters(
                     self.frame_data['geometry']['coordinates'][i + j],
                     self.frame_data['geometry']['coordinates'][i + j + 1])
             self.batch_dists_m.append(dist_m)
-            # Get average geolocation from the batch
+
+            # Calculate average geolocation during the batch
             avg = lambda values: sum(values) / len(values)
             self.batch_geo_locations.append(
                 list(map(avg, zip(*self.frame_data['geometry']['coordinates'][i:i + self.batch_size]))))
+
+            # Calculate average speed during the batch
             self.batch_speeds_kmh.append(Analyzer.mps_to_kmh(dist_m / time_s))
-        self.num_batches = len(self.batch_speeds_kmh)
+
+        # Calculate accumulated time at the end of each batch
         self.accumulated_batch_times_s = [sum(self.batch_times_s[:i + 1]) for i in range(self.num_batches)]
 
         if self.verbose:
@@ -258,13 +267,13 @@ class Analyzer:
 
         if self.verbose:
             print('driving starts at min:', Analyzer.s_to_min(sum(self.batch_times_s[:drive_start_batch])))
-            print('driving ends at min:', Analyzer.s_to_min(sum(self.batch_times_s[:drive_end_batch])))
+            print('driving ends at min:', Analyzer.s_to_min(sum(self.batch_times_s[:drive_end_batch + 1])))
 
-        self.batch_times_s = self.batch_times_s[drive_start_batch:drive_end_batch]
-        self.batch_dists_m = self.batch_dists_m[drive_start_batch:drive_end_batch]
-        self.batch_geo_locations = self.batch_geo_locations[drive_start_batch:drive_end_batch]
-        self.batch_speeds_kmh = self.batch_speeds_kmh[drive_start_batch:drive_end_batch]
-        self.num_batches = len(self.batch_speeds_kmh)
+        self.num_batches = drive_end_batch - drive_start_batch + 1
+        self.batch_times_s = self.batch_times_s[drive_start_batch:drive_end_batch + 1]
+        self.batch_dists_m = self.batch_dists_m[drive_start_batch:drive_end_batch + 1]
+        self.batch_geo_locations = self.batch_geo_locations[drive_start_batch:drive_end_batch + 1]
+        self.batch_speeds_kmh = self.batch_speeds_kmh[drive_start_batch:drive_end_batch + 1]
         self.accumulated_batch_times_s = [sum(self.batch_times_s[:i]) for i in range(self.num_batches)]
 
         if self.verbose:
