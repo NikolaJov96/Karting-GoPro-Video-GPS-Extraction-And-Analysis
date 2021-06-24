@@ -74,9 +74,10 @@ class Analyzer:
 
         return distance
 
-    def __init__(self, geojson_file, out_directory, batch_size=4, verbose=True):
+    def __init__(self, geojson_file, out_directory, batch_size=4, max_btb_speed_diff_kmh = 7.0, verbose=True):
         """
-        Declares all needed values
+        Initializes parameters and declares all needed values
+        max_btb_speed_diff_kmh: Maximum acceptable speed difference between batches, before it's considered a GPS error
         """
         # Store required parameters
         self.geojson_file = geojson_file
@@ -84,6 +85,7 @@ class Analyzer:
 
         # Store optional parameters
         self.batch_size = batch_size
+        self.max_btb_speed_diff_kmh = max_btb_speed_diff_kmh
         self.verbose = verbose
 
         # Declare frame variables
@@ -230,18 +232,35 @@ class Analyzer:
             print()
             print('__correct_outlier_data')
 
-        max_possible_speed_discrepancy_kmh = 7.0
         num_batches_speed_corrected = 0
 
+        # Check if each batch is an outlier, except the first and the last
         for spike_start_batch in range(1, self.num_batches - 1):
+            # Check if current batch is the start of 1-5 batches wide spike
             for spike_batch_width in range(1, 5):
+                # Check if there is enough batches left to check for a spike with desired width
                 if spike_start_batch < self.num_batches - spike_batch_width:
-                    spike_detected = abs(self.batch_speeds_kmh[spike_start_batch - 1] - self.batch_speeds_kmh[spike_start_batch + spike_batch_width]) < max_possible_speed_discrepancy_kmh
+
+                    # First check if batches on the potential spike edges are inside allowed speed difference
+                    spike_detected = abs(
+                        self.batch_speeds_kmh[spike_start_batch - 1] -
+                        self.batch_speeds_kmh[spike_start_batch + spike_batch_width]) < \
+                            self.max_btb_speed_diff_kmh
+
+                    # Then check if each batch in between exceeds the allowed speed difference
                     for i in range(spike_batch_width):
-                        spike_detected = spike_detected and (abs(self.batch_speeds_kmh[spike_start_batch - 1] - self.batch_speeds_kmh[spike_start_batch + i]) > max_possible_speed_discrepancy_kmh)
+                        spike_detected = spike_detected and \
+                            abs(self.batch_speeds_kmh[spike_start_batch - 1] -
+                                self.batch_speeds_kmh[spike_start_batch + i]) > \
+                                    self.max_btb_speed_diff_kmh
+
+                    # If the spike is detected, interpolate outliers between the edge batches
                     if spike_detected:
                         for i in range(spike_batch_width):
-                            self.batch_speeds_kmh[spike_start_batch + i] = (self.batch_speeds_kmh[spike_start_batch - 1] * (spike_batch_width - i) + self.batch_speeds_kmh[spike_start_batch + spike_batch_width] * (1 + i)) / (spike_batch_width + 1)
+                            self.batch_speeds_kmh[spike_start_batch + i] = \
+                                (self.batch_speeds_kmh[spike_start_batch - 1] * (spike_batch_width - i) +
+                                    self.batch_speeds_kmh[spike_start_batch + spike_batch_width] * (1 + i)) / \
+                                        (spike_batch_width + 1)
                         num_batches_speed_corrected += spike_batch_width
 
         if self.verbose:
