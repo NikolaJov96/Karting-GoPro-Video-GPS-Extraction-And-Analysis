@@ -39,7 +39,7 @@ class Analyzer:
     Class responsible for encapsulating all analysis functionality
     """
 
-    def __init__(self, geojson_file, out_directory, verbose=True):
+    def __init__(self, geojson_file, out_directory, batch_size=4, verbose=True):
         """
         Declares all needed values
         """
@@ -48,6 +48,7 @@ class Analyzer:
         self.out_directory = out_directory
 
         # Store optional parameters
+        self.batch_size = batch_size
         self.verbose = verbose
 
         # Declare frame variables
@@ -103,7 +104,6 @@ class Analyzer:
         Converts Unix time to seconds
         Trims the back of the data array to make its length divisible by the batch size
         """
-
         if self.verbose:
             print()
             print('__prepare_frame_data')
@@ -139,15 +139,12 @@ class Analyzer:
         Groups frames into batches
         Calculates time, distance and speed values for each batch
         """
-
         if self.verbose:
             print()
             print('__generate_batch_data')
 
-        batch_size = 4
-
         # Round number of frames to be divisible by the batch size
-        self.num_frames = ((len(self.frame_times_s) - 1) // batch_size) * batch_size
+        self.num_frames = ((len(self.frame_times_s) - 1) // self.batch_size) * self.batch_size
         self.frame_times_s = self.frame_times_s[:self.num_frames + 1]
 
         if self.verbose:
@@ -163,16 +160,19 @@ class Analyzer:
         self.batch_speeds_kmh = []
 
         # Group frames into batches with parameterized size and calculate speeds
-        for i in range(0, self.num_frames, batch_size):
-            time_s = self.frame_times_s[i + batch_size] - self.frame_times_s[i]
+        for i in range(0, self.num_frames, self.batch_size):
+            time_s = self.frame_times_s[i + self.batch_size] - self.frame_times_s[i]
             self.batch_times_s.append(time_s)
             dist_m = 0
-            for j in range(0, batch_size):
+            for j in range(0, self.batch_size):
                 dist_m += geo_to_meters(
                     self.frame_data['geometry']['coordinates'][i + j],
                     self.frame_data['geometry']['coordinates'][i + j + 1])
             self.batch_dists_m.append(dist_m)
-            self.batch_geo_locations.append(self.frame_data['geometry']['coordinates'][i])
+            # Get average geolocation from the batch
+            avg = lambda values: sum(values) / len(values)
+            self.batch_geo_locations.append(
+                list(map(avg, zip(*self.frame_data['geometry']['coordinates'][i:i + self.batch_size]))))
             self.batch_speeds_kmh.append(dist_m / time_s / 1000.0 * 60.0 * 60.0)
         self.num_batches = len(self.batch_speeds_kmh)
         self.accumulated_batch_times_s = [sum(self.batch_times_s[:i + 1]) for i in range(self.num_batches)]
@@ -184,7 +184,6 @@ class Analyzer:
         """
         Check for inconsistencies in batch data and fix them up
         """
-
         if self.verbose:
             print()
             print('__correct_outlier_data')
@@ -211,7 +210,6 @@ class Analyzer:
         Trims batches with speed below the preset minimal driving speed
         from the beginning and the ending of the data arrays
         """
-
         if self.verbose:
             print()
             print('__trim_non_driving')
@@ -247,7 +245,6 @@ class Analyzer:
         Finds all batches with the position at the first point on the trajectory
         that has been visited more than once
         """
-
         if self.verbose:
             print()
             print('__detect_laps')
@@ -309,7 +306,6 @@ class Analyzer:
         - Vertical lines marking laps
         - Horizontal lines marking average speed for each lap
         """
-
         if self.verbose:
             print()
             print('__plot_speed_time_graph')
@@ -339,7 +335,6 @@ class Analyzer:
         Draws trajectory contours for each lap,
         colored according to the current speed
         """
-
         if self.verbose:
             print()
             print('__plot_lap_trajectories')
