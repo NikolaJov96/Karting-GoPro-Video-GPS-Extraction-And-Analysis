@@ -416,22 +416,31 @@ class Analyzer:
             print('__plot_speed_time_graph')
 
         accumulated_batch_times_min = Analyzer.s_to_min(self.accumulated_batch_times_s)
+
         lap_average_speed_kmh_graph = []
         for i in range(self.num_detected_laps):
             lap_average_speed_kmh_graph += [self.lap_average_speed_kmh[i] for _ in range(self.lap_batches[i + 1] - self.lap_batches[i])]
+
+        # Prepare the figure
         fig, ax = plt.subplots(1, 1, figsize=(28, 7))
+        ax.set_title('Driving speed')
+        ax.set_xlabel('time (min)')
+        ax.set_ylabel('speed (km/h)')
         ax.grid(axis='y', linestyle='--')
+
+        # Plot speed line
         ax.plot(accumulated_batch_times_min, self.batch_speeds_kmh, color='red', label='Speed')
+        # Plot horizontal average speed lines for each lap
         ax.plot(accumulated_batch_times_min[self.lap_batches[0]:self.lap_batches[-1]], lap_average_speed_kmh_graph, color='blue', label='Average speed per lap')
+        # Plot vertical lines marking individual laps
         for lap_batch in self.lap_batches:
             plt.axvline(x=accumulated_batch_times_min[lap_batch], color='gray', linestyle='--')
+
+        # Define axis values
         ax.set_ylim((0, max(self.batch_speeds_kmh) * 1.1))
         ax.set_xlim((accumulated_batch_times_min[0], accumulated_batch_times_min[-1]))
-        ax.set(
-            xlabel='time (min)',
-            ylabel='speed (km/h)',
-            title='Driving speed')
         ax.set_xticks([x / 2.0 for x in range(int(max(accumulated_batch_times_min)) * 2 + 1)])
+
         ax.legend()
         fig.savefig(os.path.join(self.out_directory, 'driving_speed.png'), bbox_inches='tight')
 
@@ -444,7 +453,11 @@ class Analyzer:
             print()
             print('__plot_lap_trajectories')
 
+        # Get max recorded speed for scaling the color map
         max_recorded_speed = max(self.batch_speeds_kmh)
+
+        # Calculate aspect ratio of the lap plot using geolocations,
+        #  by findind distances between recorded points with most vertical and horizontal distance
         lats = [x[1] for x in self.batch_geo_locations]
         lons = [x[0] for x in self.batch_geo_locations]
         min_lat_batch = lats.index(min(lats))
@@ -458,29 +471,38 @@ class Analyzer:
             [lats[min_lon_batch], lons[min_lon_batch]],
             [lats[min_lon_batch], lons[max_lon_batch]])
         aspect_ratio = d_lat / d_lon
+
+        # Prepare the figure
         fig, ax = plt.subplots(self.num_detected_laps, figsize=(11, 4 * self.num_detected_laps))
         for i in range(self.num_detected_laps):
+            # Cut out the part of the data for the current lap
             x_coords = [(x - min(lons)) / (max(lons) - min(lons)) for x in lons[self.lap_batches[i]:self.lap_batches[i + 1]]]
             y_coords = [(x - min(lats)) / (max(lats) - min(lats)) for x in lats[self.lap_batches[i]:self.lap_batches[i + 1]]]
             colors = cm.jet([x / max_recorded_speed for x in self.batch_speeds_kmh[self.lap_batches[i]:self.lap_batches[i + 1]]])
+            # Plot out the current lap
             ax[i].set_title('Lap %d' % (i + 1))
             ax[i].scatter(x_coords, y_coords, color=colors)
             ax[i].scatter(x_coords[0], y_coords[0], color='gray', s=70)
             ax[i].set_aspect(aspect_ratio)
             ax[i].get_xaxis().set_visible(False)
             ax[i].get_yaxis().set_visible(False)
+
+        # Define the axis used to display graph title
         fig.subplots_adjust(top=0.95)
         title_ax = fig.add_axes([0.15, 0.95, 0.7, 0.03])
         title_ax.axis('off')
         title_ax.text(0.5, 0.8, 'Lap contours', ha='center', va='center', fontsize=20)
+
+        # Define the axis used to display colorbar legend
         fig.subplots_adjust(bottom=0.05)
-        cbar_ax = fig.add_axes([0.2, 0.02, 0.6, 0.01])
+        colorbar_ax = fig.add_axes([0.2, 0.02, 0.6, 0.01])
         fig.colorbar(
             cm.ScalarMappable(norm=Normalize(0, max_recorded_speed), cmap=cm.jet),
-            cax=cbar_ax,
+            cax=colorbar_ax,
             orientation='horizontal',
             ticks=[max_recorded_speed * i / 5 for i in range(6)],
             label='km/h')
+
         fig.savefig(os.path.join(self.out_directory, 'lap_contours.png'), bbox_inches='tight')
 
 
