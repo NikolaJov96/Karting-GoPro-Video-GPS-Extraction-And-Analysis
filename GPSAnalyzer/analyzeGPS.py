@@ -1,10 +1,11 @@
-from math import sin, cos, sqrt, atan2, radians
+from math import ceil, sin, cos, sqrt, atan2, radians
 from matplotlib.colors import Normalize
 
 import os
 import json
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
+import numpy as np
 import sys
 
 
@@ -496,8 +497,20 @@ class Analyzer:
         aspect_ratio = d_lat / d_lon
 
         # Prepare the figure
-        fig, ax = plt.subplots(self.num_detected_laps, figsize=(11, 4 * self.num_detected_laps))
+        self.num_detected_laps = 8
+        vertical_grid = ceil(sqrt(self.num_detected_laps))
+        horizontal_grid = ceil(self.num_detected_laps / vertical_grid)
+        fig, ax = plt.subplots(vertical_grid, horizontal_grid, figsize=(11 * horizontal_grid, 4 * vertical_grid))
+        # Make ax a 2D array
+        if self.num_detected_laps == 1:
+            ax = np.array([np.array([ax])])
+        elif horizontal_grid == 1:
+            ax = np.array([ax]).reshape((vertical_grid, horizontal_grid))
+
+        # Populate used axis
         for i in range(self.num_detected_laps):
+            ax_x = i // horizontal_grid
+            ax_y = i % horizontal_grid
             # Cut out the part of the data for the current lap
             x_coords = \
                 [(x - min(lons)) / (max(lons) - min(lons)) for x in lons[self.lap_batches[i]:self.lap_batches[i + 1]]]
@@ -506,12 +519,18 @@ class Analyzer:
             colors = cm.jet(
                 [x / max_recorded_speed for x in self.batch_speeds_kmh[self.lap_batches[i]:self.lap_batches[i + 1]]])
             # Plot out the current lap
-            ax[i].set_title('Lap %d' % (i + 1))
-            ax[i].scatter(x_coords, y_coords, color=colors)
-            ax[i].scatter(x_coords[0], y_coords[0], color='gray', s=70)
-            ax[i].set_aspect(aspect_ratio)
-            ax[i].get_xaxis().set_visible(False)
-            ax[i].get_yaxis().set_visible(False)
+            ax[ax_x, ax_y].set_title('Lap %d' % (i + 1))
+            ax[ax_x, ax_y].scatter(x_coords, y_coords, color=colors)
+            ax[ax_x, ax_y].scatter(x_coords[0], y_coords[0], color='gray', s=70)
+            ax[ax_x, ax_y].set_aspect(aspect_ratio)
+            ax[ax_x, ax_y].get_xaxis().set_visible(False)
+            ax[ax_x, ax_y].get_yaxis().set_visible(False)
+
+        # Remove unused axis
+        for i in range(self.num_detected_laps, vertical_grid * horizontal_grid):
+            ax_x = i // horizontal_grid
+            ax_y = i % horizontal_grid
+            ax[ax_x, ax_y].axis('off')
 
         # Define the axis used to display graph title
         fig.subplots_adjust(top=0.95)
@@ -521,7 +540,9 @@ class Analyzer:
 
         # Define the axis used to display colorbar legend
         fig.subplots_adjust(bottom=0.05)
-        colorbar_ax = fig.add_axes([0.2, 0.02, 0.6, 0.01])
+        colorbar_width = 0.6 / horizontal_grid
+        spacing_from_left = 0.5 - colorbar_width / 2
+        colorbar_ax = fig.add_axes([spacing_from_left, 0.02, colorbar_width, 0.01])
         fig.colorbar(
             cm.ScalarMappable(norm=Normalize(0, max_recorded_speed), cmap=cm.jet),
             cax=colorbar_ax,
