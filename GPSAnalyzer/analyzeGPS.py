@@ -497,7 +497,6 @@ class Analyzer:
         aspect_ratio = d_lat / d_lon
 
         # Prepare the figure
-        self.num_detected_laps = 8
         vertical_grid = ceil(sqrt(self.num_detected_laps))
         horizontal_grid = ceil(self.num_detected_laps / vertical_grid)
         fig, ax = plt.subplots(vertical_grid, horizontal_grid, figsize=(11 * horizontal_grid, 4 * vertical_grid))
