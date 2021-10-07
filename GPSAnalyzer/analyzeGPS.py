@@ -157,6 +157,7 @@ class Analyzer:
     def __prepare_frame_data(self):
         """
         Loads per frame data from the file
+        Removes extreme outliers
         Converts Unix time to seconds
         Trims the back of the data array to make its length divisible by the batch size
         """
@@ -167,6 +168,26 @@ class Analyzer:
         # Read geo data consisting of frames
         with open(self.geojson_file, 'r') as fin:
             self.frame_data = json.loads(fin.read())
+
+        # Remove drastic outliers
+        i = len(self.frame_data['geometry']['coordinates']) - 1
+        threshold_m = 1000.0
+        removed_outliers_num = 0
+        while i > 0:
+            if Analyzer.geo_to_meters(
+                self.frame_data['geometry']['coordinates'][0],
+                self.frame_data['geometry']['coordinates'][i]) > threshold_m:
+                    del self.frame_data['geometry']['coordinates'][i]
+                    del self.frame_data['properties']['AbsoluteUtcMicroSec'][i]
+                    del self.frame_data['properties']['RelativeMicroSec'][i]
+                    removed_outliers_num += 1
+            i -= 1
+
+        # Confirm data validity
+        coordinates_num = len(self.frame_data['geometry']['coordinates'])
+        absolute_time_num = len(self.frame_data['properties']['AbsoluteUtcMicroSec'])
+        relative_time_num = len(self.frame_data['properties']['RelativeMicroSec'])
+        assert coordinates_num == absolute_time_num and coordinates_num == relative_time_num
 
         # Preview data
         if self.verbose:
@@ -179,6 +200,7 @@ class Analyzer:
             print('data.properties.device:', self.frame_data['properties']['device'])
             print('data.properties.AbsoluteUtcMicroSec:', self.frame_data['properties']['AbsoluteUtcMicroSec'][:10])
             print('data.properties.RelativeMicroSec:', self.frame_data['properties']['RelativeMicroSec'][:10])
+            print('removed drastic outliers num:', removed_outliers_num)
 
         # Convert time data to seconds
         self.frame_times_s = Analyzer.ms_to_s(self.frame_data['properties']['RelativeMicroSec'])
