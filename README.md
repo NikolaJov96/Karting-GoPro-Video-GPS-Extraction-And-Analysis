@@ -29,7 +29,7 @@ Analysis is done by the Python script inside the `GPSAnalyzer`. The script accep
 
 ```
 cd GPSAnalyzer
-python3 analyzeGPS.py extracted_path.geojson
+python3 analyzeGPS.py extracted_path.geojson output_path
 ```
 
 ## Sample Data
