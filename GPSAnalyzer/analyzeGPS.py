@@ -79,7 +79,7 @@ class Analyzer:
             out_directory,
             batch_size=4,
             max_btb_speed_diff_kmh = 7.0,
-            min_driving_speed_kmh = 10.0,
+            min_driving_speed_kmh = 20.0,
             min_possible_lap_time_s = 30.0,
             lap_detection_min_distance_m = 4.0,
             verbose=True):
@@ -425,10 +425,9 @@ class Analyzer:
                 self.accumulated_batch_times_s[self.lap_batches[lap]])
 
         if self.verbose:
-            lap_average_times_min = Analyzer.s_to_min(self.lap_times_s)
-            print('lap #, time min and avg speed kmh')
+            print('lap #, time sec and avg speed kmh')
             for i in range(self.num_detected_laps):
-                print(i + 1, lap_average_times_min[i], self.lap_average_speeds_kmh[i])
+                print(i + 1, self.lap_times_s[i], self.lap_average_speeds_kmh[i])
 
     def __plot_speed_time_graph(self):
         """
@@ -443,8 +442,6 @@ class Analyzer:
 
         accumulated_batch_times_min = Analyzer.s_to_min(self.accumulated_batch_times_s)
 
-        lap_average_times_min = Analyzer.s_to_min(self.lap_times_s)
-
         lap_average_speed_kmh_graph = []
         for i in range(self.num_detected_laps):
             lap_average_speed_kmh_graph += \
@@ -453,7 +450,7 @@ class Analyzer:
         # Prepare the figure
         fig, ax = plt.subplots(1, 1, figsize=(28, 7))
         ax.set_title('Driving speed')
-        ax.set_xlabel('time and lap duration (min)')
+        ax.set_xlabel('time and lap duration (sec)')
         ax.set_ylabel('speed (km/h)')
         ax.grid(axis='y', linestyle='--')
 
@@ -482,7 +479,7 @@ class Analyzer:
             ax.text(
                 (lap_positions[i] + lap_positions[i + 1]) / 2,
                 1,
-                '%.3f' % lap_average_times_min[i],
+                '%.3f' % self.lap_times_s[i],
                 horizontalalignment='center',
                 verticalalignment='bottom',
                 fontsize=13)
