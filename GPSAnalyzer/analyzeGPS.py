@@ -687,7 +687,7 @@ class Analyzer:
         total_laps = np.sum(self.sector_times_s, axis=0)
 
         # Generate table text content
-        cell_text = [['Lap'] + [f'Lap {l + 1}' for l in range(self.num_detected_laps)] + ['Best']]
+        cell_text = [['Sector'] + [f'Lap {l + 1}' for l in range(self.num_detected_laps)] + ['Best']]
         for i, sector_times_row in enumerate(self.sector_times_s):
             row = [str(i + 1)]
             row += ['{:.3f}'.format(s) for s in list(sector_times_row)]
