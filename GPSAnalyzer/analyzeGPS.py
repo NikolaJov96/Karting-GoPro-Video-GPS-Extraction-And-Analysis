@@ -400,12 +400,13 @@ class Analyzer:
 
         # Find times per sector if tack exists
         if self.track_descriptor is not None and len(self.track_descriptor.sector_lines) > 0:
+            # Find all batches on sector edges
             sector_batches = [[] for _ in range(self.num_detected_laps)]
             sector_batches[0].append(self.lap_batches[0])
             sector_lines = list(self.track_descriptor.sector_lines) + [self.track_descriptor.start_line]
             for lap_id in range(self.num_detected_laps):
                 for sector_id in range(len(sector_lines)):
-                    batch_id = sector_batches[lap_id][-1]
+                    batch_id = sector_batches[lap_id][-1] + 1
                     while not Analyzer.line_intersect(
                             sector_lines[sector_id][:2],
                             sector_lines[sector_id][2:],
@@ -413,18 +414,26 @@ class Analyzer:
                             self.batch_geo_locations[batch_id + 1]):
                         batch_id += 1
                     sector_batches[lap_id].append(batch_id)
-                    batch_id += 1
-                assert batch_id - 1 == self.lap_batches[lap_id + 1], f'{batch_id - 1} {self.lap_batches[lap_id + 1]}'
+                assert sector_batches[lap_id][-1] == self.lap_batches[lap_id + 1], f'lapping batches not aligned: {batch_id - 1}, {self.lap_batches[lap_id + 1]}'
                 if lap_id < self.num_detected_laps - 1:
-                    sector_batches[lap_id + 1].append(batch_id)
-                    batch_id += 1
-            self.sector_times_s = np.zeros((len(sector_lines), self.num_detected_laps + 1))
+                    sector_batches[lap_id + 1].append(sector_batches[lap_id][-1])
+
+            # Calculate sector times using sector batches
+            self.sector_times_s = np.zeros((len(sector_lines) + 1, self.num_detected_laps + 1))
             for lap_id in range(self.num_detected_laps):
                 for sector_id in range(len(sector_lines)):
                     self.sector_times_s[sector_id, lap_id] = \
                         self.accumulated_batch_times_s[sector_batches[lap_id][sector_id + 1]] - \
                             self.accumulated_batch_times_s[sector_batches[lap_id][sector_id]]
-            self.sector_times_s[:, -1] = np.min(self.sector_times_s[:, :-1], axis=1)
+            # Extract the best times per sector to an additional column
+            self.sector_times_s[:-1, -1] = np.min(self.sector_times_s[:-1, :-1], axis=1)
+            # Aggregate total lap times to an additional  row
+            self.sector_times_s[-1, :] = np.sum(self.sector_times_s[:-1], axis=0)
+
+            # Ensure lap time consistency
+            for lap_id in range(self.num_detected_laps):
+                assert self.sector_times_s[-1, lap_id] == self.lap_times_s[lap_id], f'lap times not consistent: {self.sector_times_s[-1, lap_id]}, {self.lap_times_s[lap_id]}'
+
             np.save(os.path.join(self.out_directory, 'sectors.npy'), self.sector_times_s, allow_pickle=False)
 
             if self.verbose:
@@ -434,7 +443,7 @@ class Analyzer:
                 print(format_heading_row.format(*column_headers))
                 for row in self.sector_times_s:
                     print(format__value_row.format(*row))
-                print('best sector time aggregation: {:.3f}'.format(np.sum(self.sector_times_s[:, -1])))
+                print('best sector time aggregation: {:.3f}'.format(np.sum(self.sector_times_s[:-1, -1])))
 
     def __detect_laps_track(self):
         """
@@ -684,19 +693,17 @@ class Analyzer:
         # Prepare some values
         num_sectors = self.sector_times_s.shape[0]
         best_sectors = np.argmin(self.sector_times_s, axis=1)
-        total_laps = np.sum(self.sector_times_s, axis=0)
+        best_sectors[-1] = np.argmin(self.sector_times_s[-1, :-1])
 
         # Generate table text content
         cell_text = [['Sector'] + [f'Lap {l + 1}' for l in range(self.num_detected_laps)] + ['Best']]
         for i, sector_times_row in enumerate(self.sector_times_s):
-            row = [str(i + 1)]
+            row = [str(i + 1) if i < len(self.sector_times_s) - 1 else 'Total']
             row += ['{:.3f}'.format(s) for s in list(sector_times_row)]
             cell_text.append(row)
-        total_row = ['Total'] + ['{:.3f}'.format(s) for s in total_laps]
-        cell_text.append(total_row)
 
         # Generate table cell colors
-        colors = [['w' for _ in range(self.num_detected_laps + 2)] for _ in range(num_sectors + 2)]
+        colors = [['w' for _ in range(self.num_detected_laps + 2)] for _ in range(num_sectors + 1)]
         for sector_id in range(num_sectors):
             colors[sector_id + 1][best_sectors[sector_id] + 1] = '#00f000'
             colors[sector_id + 1][-1] = '#e0e0e0'
