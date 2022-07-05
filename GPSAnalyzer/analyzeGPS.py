@@ -428,7 +428,6 @@ class Analyzer:
             for row in sector_times_s:
                 print(format__value_row.format(*row))
             print('best sector time aggregation: {:.3f}'.format(np.sum(sector_times_s[:, -1])))
-            print(sector_times_s)
 
     def __detect_laps_track(self):
         """
