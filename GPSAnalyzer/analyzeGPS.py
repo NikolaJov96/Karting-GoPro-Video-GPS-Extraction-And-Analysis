@@ -139,6 +139,7 @@ class Analyzer:
         self.num_detected_laps = 0
         self.lap_average_speeds_kmh = []
         self.lap_times_s = []
+        self.sector_times_s = None
 
     def load_data_and_generate_graphs(self):
         """
@@ -168,6 +169,9 @@ class Analyzer:
 
         # Draw lap trajectory plots
         self.__plot_lap_trajectories()
+
+        # Draw sector times table
+        self.__plot_per_sector_times()
 
     def __prepare_frame_data(self):
         """
@@ -414,23 +418,23 @@ class Analyzer:
                 if lap_id < self.num_detected_laps - 1:
                     sector_batches[lap_id + 1].append(batch_id)
                     batch_id += 1
-            sector_times_s = np.zeros((len(sector_lines), self.num_detected_laps + 1))
+            self.sector_times_s = np.zeros((len(sector_lines), self.num_detected_laps + 1))
             for lap_id in range(self.num_detected_laps):
                 for sector_id in range(len(sector_lines)):
-                    sector_times_s[sector_id, lap_id] = \
+                    self.sector_times_s[sector_id, lap_id] = \
                         self.accumulated_batch_times_s[sector_batches[lap_id][sector_id + 1]] - \
                             self.accumulated_batch_times_s[sector_batches[lap_id][sector_id]]
-            sector_times_s[:, -1] = np.min(sector_times_s[:, :-1], axis=1)
-            np.save(os.path.join(self.out_directory, 'sectors.npy'), sector_times_s, allow_pickle=False)
+            self.sector_times_s[:, -1] = np.min(self.sector_times_s[:, :-1], axis=1)
+            np.save(os.path.join(self.out_directory, 'sectors.npy'), self.sector_times_s, allow_pickle=False)
 
             if self.verbose:
                 column_headers = [f'Lap {s + 1}' for s in range(self.num_detected_laps)] + ['Best']
                 format_heading_row = '{:>12}' * (self.num_detected_laps + 1)
                 format__value_row = '{:12.3f}' * (self.num_detected_laps + 1)
                 print(format_heading_row.format(*column_headers))
-                for row in sector_times_s:
+                for row in self.sector_times_s:
                     print(format__value_row.format(*row))
-                print('best sector time aggregation: {:.3f}'.format(np.sum(sector_times_s[:, -1])))
+                print('best sector time aggregation: {:.3f}'.format(np.sum(self.sector_times_s[:, -1])))
 
     def __detect_laps_track(self):
         """
@@ -662,6 +666,53 @@ class Analyzer:
             label='km/h')
 
         fig.savefig(os.path.join(self.out_directory, 'lap_contours.png'), bbox_inches='tight')
+
+    def __plot_per_sector_times(self):
+        """
+        Draws a table with sector times,
+        the best sectors are colored in green
+        """
+        if self.verbose:
+            print()
+            print('__plot_per_sector_times')
+
+        if self.track_descriptor is None:
+            if self.verbose:
+                print('skipping')
+            return
+
+        # Prepare some values
+        num_sectors = self.sector_times_s.shape[0]
+        best_sectors = np.argmin(self.sector_times_s, axis=1)
+        total_laps = np.sum(self.sector_times_s, axis=0)
+
+        # Generate table text content
+        cell_text = [['Lap'] + [f'Lap {l + 1}' for l in range(self.num_detected_laps)] + ['Best']]
+        for i, sector_times_row in enumerate(self.sector_times_s):
+            row = [str(i + 1)]
+            row += ['{:.3f}'.format(s) for s in list(sector_times_row)]
+            cell_text.append(row)
+        total_row = ['Total'] + ['{:.3f}'.format(s) for s in total_laps]
+        cell_text.append(total_row)
+
+        # Generate table cell colors
+        colors = [['w' for _ in range(self.num_detected_laps + 2)] for _ in range(num_sectors + 2)]
+        for sector_id in range(num_sectors):
+            colors[sector_id + 1][best_sectors[sector_id] + 1] = '#00f000'
+            colors[sector_id + 1][-1] = '#e0e0e0'
+
+        # Draw and save the table
+        fig, ax = plt.subplots(1, 1, figsize=(7, 3))
+        ax.set_title('Sector times')
+        ax.axis('tight')
+        ax.axis('off')
+        ax.table(
+            cellText=cell_text,
+            cellColours=colors,
+            loc='center'
+        )
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.out_directory, 'sector_times.png'))
 
 
 if __name__ == '__main__':
