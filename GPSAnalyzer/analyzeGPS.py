@@ -1,7 +1,6 @@
 import argparse
 import json
 import os
-import sys
 from math import atan2, ceil, cos, radians, sin, sqrt
 
 import matplotlib.cm as cm
@@ -22,7 +21,7 @@ class Analyzer:
         """
         Applies conversion multiplier to the input
         If input is list, returns a list with each input element multiplied
-        If input is variable, returns multipled value
+        If input is variable, returns multiplied value
         """
         if type(input) == list:
             return list(map(lambda x: x * conversion_multiplier, input))
@@ -66,15 +65,25 @@ class Analyzer:
         lat2 = radians(geoloc2[1])
         lon2 = radians(geoloc2[0])
 
-        dlon = lon2 - lon1
-        dlat = lat2 - lat1
+        d_lon = lon2 - lon1
+        d_lat = lat2 - lat1
 
-        a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+        a = sin(d_lat / 2)**2 + cos(lat1) * cos(lat2) * sin(d_lon / 2)**2
         c = 2 * atan2(sqrt(a), sqrt(1 - a))
 
         distance = R * c
 
         return distance
+
+    @staticmethod
+    def line_intersect(l1_a, l1_b, l2_a, l2_b):
+        """
+        Checks whether two lines defined by a pair of points intersect
+        """
+        def ccw(p1, p2, p3):
+            return (p3[1] - p1[1]) * (p2[0] - p1[0]) > (p2[1] - p1[1]) * (p3[0] - p1[0])
+
+        return ccw(l1_a, l2_a, l2_b) != ccw(l1_b, l2_a, l2_b) and ccw(l1_a, l1_b, l2_a) != ccw(l1_a, l1_b, l2_b)
 
     def __init__(
             self,
@@ -383,11 +392,43 @@ class Analyzer:
             print('lap #, time sec and avg speed kmh')
             for i in range(self.num_detected_laps):
                 print(i + 1, self.lap_times_s[i], self.lap_average_speeds_kmh[i])
+            print('best lap: {:.3f}'.format(np.min(self.lap_times_s)))
 
         # Find times per sector if tack exists
-        if self.track_descriptor is not None and len(self.track_descriptor.sector_lines) > 0:
-            # TODO
-            pass
+        if self.verbose and self.track_descriptor is not None and len(self.track_descriptor.sector_lines) > 0:
+            sector_batches = [[] for _ in range(self.num_detected_laps)]
+            sector_batches[0].append(self.lap_batches[0])
+            sector_lines = list(self.track_descriptor.sector_lines) + [self.track_descriptor.start_line]
+            for lap_id in range(self.num_detected_laps):
+                for sector_id in range(len(sector_lines)):
+                    batch_id = sector_batches[lap_id][-1]
+                    while not Analyzer.line_intersect(
+                            sector_lines[sector_id][:2],
+                            sector_lines[sector_id][2:],
+                            self.batch_geo_locations[batch_id],
+                            self.batch_geo_locations[batch_id + 1]):
+                        batch_id += 1
+                    sector_batches[lap_id].append(batch_id)
+                    batch_id += 1
+                assert batch_id - 1 == self.lap_batches[lap_id + 1], f'{batch_id - 1} {self.lap_batches[lap_id + 1]}'
+                if lap_id < self.num_detected_laps - 1:
+                    sector_batches[lap_id + 1].append(batch_id)
+                    batch_id += 1
+            sector_times_s = np.zeros((len(sector_lines), self.num_detected_laps + 1))
+            for lap_id in range(self.num_detected_laps):
+                for sector_id in range(len(sector_lines)):
+                    sector_times_s[sector_id, lap_id] = \
+                        self.accumulated_batch_times_s[sector_batches[lap_id][sector_id + 1]] - \
+                            self.accumulated_batch_times_s[sector_batches[lap_id][sector_id]]
+            sector_times_s[:, -1] = np.min(sector_times_s[:, :-1], axis=1)
+            column_headers = [f'Lap {s + 1}' for s in range(self.num_detected_laps)] + ['Best']
+            format_heading_row = '{:>12}' * (self.num_detected_laps + 1)
+            format__value_row = '{:12.3f}' * (self.num_detected_laps + 1)
+            print(format_heading_row.format(*column_headers))
+            for row in sector_times_s:
+                print(format__value_row.format(*row))
+            print('best sector time aggregation: {:.3f}'.format(np.sum(sector_times_s[:, -1])))
+            print(sector_times_s)
 
     def __detect_laps_track(self):
         """
@@ -397,15 +438,8 @@ class Analyzer:
             print()
             print('__detect_laps_track')
 
-        def ccw(A, B, C):
-            return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
-
-        # Return true if line segments AB and CD intersect
-        def intersect(A, B, C, D):
-            return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
-
         for batch_id in range(self.num_batches - 1):
-            if intersect(
+            if Analyzer.line_intersect(
                     self.track_descriptor.start_line[:2],
                     self.track_descriptor.start_line[2:],
                     self.batch_geo_locations[batch_id],
@@ -544,7 +578,7 @@ class Analyzer:
         max_recorded_speed = max(self.batch_speeds_kmh)
 
         # Calculate aspect ratio of the lap plot using geolocations,
-        #  by findind distances between recorded points with most vertical and horizontal distance
+        #  by finding distances between recorded points with most vertical and horizontal distance
         lats = [x[1] for x in self.batch_geo_locations]
         lons = [x[0] for x in self.batch_geo_locations]
         min_lat_batch = lats.index(min(lats))
