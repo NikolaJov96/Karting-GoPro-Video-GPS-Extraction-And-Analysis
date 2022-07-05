@@ -1,12 +1,15 @@
-from math import ceil, sin, cos, sqrt, atan2, radians
-from matplotlib.colors import Normalize
-
-import os
+import argparse
 import json
+import os
+import sys
+from math import atan2, ceil, cos, radians, sin, sqrt
+
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
-import sys
+from matplotlib.colors import Normalize
+
+from trackDescriptor import TrackDescriptor
 
 
 class Analyzer:
@@ -78,10 +81,11 @@ class Analyzer:
             geojson_file,
             out_directory,
             batch_size=4,
-            max_btb_speed_diff_kmh = 7.0,
-            min_driving_speed_kmh = 20.0,
-            min_possible_lap_time_s = 30.0,
-            lap_detection_min_distance_m = 4.0,
+            max_btb_speed_diff_kmh=7.0,
+            min_driving_speed_kmh=20.0,
+            min_possible_lap_time_s=30.0,
+            lap_detection_min_distance_m=4.0,
+            track_descriptor=None,
             verbose=True):
         """
         Initializes parameters and declares all needed values
@@ -93,6 +97,7 @@ class Analyzer:
                                        but big enough to gain some distance from the starting position
         param lap_detection_min_distance_m: Minimal distance between two points to be considered a lap closure,
                                             as small as possible, while covering the width of track
+        param track_descriptor: Optional object containing track description
         """
         # Store required parameters
         self.geojson_file = geojson_file
@@ -104,6 +109,7 @@ class Analyzer:
         self.min_driving_speed_kmh = min_driving_speed_kmh
         self.min_possible_lap_time_s = min_possible_lap_time_s
         self.lap_detection_min_distance_m = lap_detection_min_distance_m
+        self.track_descriptor = track_descriptor
         self.verbose = verbose
 
         # Declare frame variables
@@ -344,13 +350,75 @@ class Analyzer:
 
     def __detect_laps(self):
         """
-        Finds all batche ids that mark starts and ends of laps
+        Finds all batch ids that mark starts and ends of laps
+        """
+        self.lap_batches = []
+
+        # Run the appropriate lap detection
+        if self.track_descriptor is not None:
+            self.__detect_laps_track()
+        else:
+            self.__detect_laps_no_track()
+
+        self.num_detected_laps = len(self.lap_batches) - 1
+
+        if self.verbose:
+            print('num detected full laps:', self.num_detected_laps)
+
+        # Calculate average speeds and time for each lap
+        self.lap_average_speeds_kmh = []
+        self.lap_times_s = []
+        for lap in range(self.num_detected_laps):
+
+            self.lap_average_speeds_kmh.append(Analyzer.mps_to_kmh(
+                sum(self.batch_dists_m[self.lap_batches[lap]:self.lap_batches[lap + 1]]) / \
+                (self.accumulated_batch_times_s[self.lap_batches[lap + 1]] -
+                    self.accumulated_batch_times_s[self.lap_batches[lap]])))
+
+            self.lap_times_s.append(
+                self.accumulated_batch_times_s[self.lap_batches[lap + 1]] -
+                self.accumulated_batch_times_s[self.lap_batches[lap]])
+
+        if self.verbose:
+            print('lap #, time sec and avg speed kmh')
+            for i in range(self.num_detected_laps):
+                print(i + 1, self.lap_times_s[i], self.lap_average_speeds_kmh[i])
+
+        # Find times per sector if tack exists
+        if self.track_descriptor is not None and len(self.track_descriptor.sector_lines) > 0:
+            # TODO
+            pass
+
+    def __detect_laps_track(self):
+        """
+        __detect_laps specification with track descriptor present
         """
         if self.verbose:
             print()
-            print('__detect_laps')
+            print('__detect_laps_track')
 
-        self.lap_batches = []
+        def ccw(A, B, C):
+            return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
+
+        # Return true if line segments AB and CD intersect
+        def intersect(A, B, C, D):
+            return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
+
+        for batch_id in range(self.num_batches - 1):
+            if intersect(
+                    self.track_descriptor.start_line[:2],
+                    self.track_descriptor.start_line[2:],
+                    self.batch_geo_locations[batch_id],
+                    self.batch_geo_locations[batch_id + 1]):
+                self.lap_batches.append(batch_id)
+
+    def __detect_laps_no_track(self):
+        """
+        __detect_laps specification with no track descriptor present
+        """
+        if self.verbose:
+            print()
+            print('__detect_laps_no_track')
 
         # Quick function that finds the id of the first batch that ends after
         #   the current time moment with added minimal possible lap time
@@ -404,30 +472,6 @@ class Analyzer:
 
                 else:
                     curr_batch += 1
-
-        self.num_detected_laps = len(self.lap_batches) - 1
-
-        if self.verbose:
-            print('num detected full laps:', self.num_detected_laps)
-
-        # Calculate average speeds and time for each lap
-        self.lap_average_speeds_kmh = []
-        self.lap_times_s = []
-        for lap in range(self.num_detected_laps):
-
-            self.lap_average_speeds_kmh.append(Analyzer.mps_to_kmh(
-                sum(self.batch_dists_m[self.lap_batches[lap]:self.lap_batches[lap + 1]]) / \
-                (self.accumulated_batch_times_s[self.lap_batches[lap + 1]] -
-                    self.accumulated_batch_times_s[self.lap_batches[lap]])))
-
-            self.lap_times_s.append(
-                self.accumulated_batch_times_s[self.lap_batches[lap + 1]] -
-                self.accumulated_batch_times_s[self.lap_batches[lap]])
-
-        if self.verbose:
-            print('lap #, time sec and avg speed kmh')
-            for i in range(self.num_detected_laps):
-                print(i + 1, self.lap_times_s[i], self.lap_average_speeds_kmh[i])
 
     def __plot_speed_time_graph(self):
         """
@@ -540,6 +584,19 @@ class Analyzer:
             ax[ax_x, ax_y].set_title('Lap %d' % (i + 1))
             ax[ax_x, ax_y].scatter(x_coords, y_coords, color=colors)
             ax[ax_x, ax_y].scatter(x_coords[0], y_coords[0], color='gray', s=70)
+            if self.track_descriptor:
+                # Add start and sector lines
+                x_c_start = \
+                    [(x - min(lons)) / (max(lons) - min(lons)) for x in self.track_descriptor.start_line[::2]]
+                y_c_start = \
+                    [(x - min(lats)) / (max(lats) - min(lats)) for x in self.track_descriptor.start_line[1::2]]
+                ax[ax_x, ax_y].plot(x_c_start, y_c_start, color='black', linewidth=5)
+                for sector_line in self.track_descriptor.sector_lines:
+                    x_c_sector = \
+                        [(x - min(lons)) / (max(lons) - min(lons)) for x in sector_line[::2]]
+                    y_c_sector = \
+                        [(x - min(lats)) / (max(lats) - min(lats)) for x in sector_line[1::2]]
+                    ax[ax_x, ax_y].plot(x_c_sector, y_c_sector, color='gray', linewidth=5)
             ax[ax_x, ax_y].set_aspect(aspect_ratio)
             ax[ax_x, ax_y].get_xaxis().set_visible(False)
             ax[ax_x, ax_y].get_yaxis().set_visible(False)
@@ -572,11 +629,15 @@ class Analyzer:
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('geojson_file', type=str, help='Path to a file containing driving geojson data')
+    parser.add_argument('out_directory', type=str, help='Directory where output should be stored')
+    parser.add_argument('--track_descriptor', '-d', type=str, help='Path to the file describing the track')
+    args = parser.parse_args()
 
-    # Check command line arguments
-    if len(sys.argv) != 3:
-        print('Usage: %s <geojson_file> <out_directory>' % os.path.basename(__file__))
-        exit(1)
+    track_descriptor = None
+    if args.track_descriptor is not None:
+        track_descriptor = TrackDescriptor(args.track_descriptor)
 
-    analyzer = Analyzer(sys.argv[1], sys.argv[2])
+    analyzer = Analyzer(args.geojson_file, args.out_directory, track_descriptor=track_descriptor)
     analyzer.load_data_and_generate_graphs()
