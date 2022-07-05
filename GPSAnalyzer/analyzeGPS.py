@@ -395,7 +395,7 @@ class Analyzer:
             print('best lap: {:.3f}'.format(np.min(self.lap_times_s)))
 
         # Find times per sector if tack exists
-        if self.verbose and self.track_descriptor is not None and len(self.track_descriptor.sector_lines) > 0:
+        if self.track_descriptor is not None and len(self.track_descriptor.sector_lines) > 0:
             sector_batches = [[] for _ in range(self.num_detected_laps)]
             sector_batches[0].append(self.lap_batches[0])
             sector_lines = list(self.track_descriptor.sector_lines) + [self.track_descriptor.start_line]
@@ -421,13 +421,16 @@ class Analyzer:
                         self.accumulated_batch_times_s[sector_batches[lap_id][sector_id + 1]] - \
                             self.accumulated_batch_times_s[sector_batches[lap_id][sector_id]]
             sector_times_s[:, -1] = np.min(sector_times_s[:, :-1], axis=1)
-            column_headers = [f'Lap {s + 1}' for s in range(self.num_detected_laps)] + ['Best']
-            format_heading_row = '{:>12}' * (self.num_detected_laps + 1)
-            format__value_row = '{:12.3f}' * (self.num_detected_laps + 1)
-            print(format_heading_row.format(*column_headers))
-            for row in sector_times_s:
-                print(format__value_row.format(*row))
-            print('best sector time aggregation: {:.3f}'.format(np.sum(sector_times_s[:, -1])))
+            np.save(os.path.join(self.out_directory, 'sectors.npy'), sector_times_s, allow_pickle=False)
+
+            if self.verbose:
+                column_headers = [f'Lap {s + 1}' for s in range(self.num_detected_laps)] + ['Best']
+                format_heading_row = '{:>12}' * (self.num_detected_laps + 1)
+                format__value_row = '{:12.3f}' * (self.num_detected_laps + 1)
+                print(format_heading_row.format(*column_headers))
+                for row in sector_times_s:
+                    print(format__value_row.format(*row))
+                print('best sector time aggregation: {:.3f}'.format(np.sum(sector_times_s[:, -1])))
 
     def __detect_laps_track(self):
         """
