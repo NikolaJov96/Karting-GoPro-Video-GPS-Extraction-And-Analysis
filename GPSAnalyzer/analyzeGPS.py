@@ -85,6 +85,21 @@ class Analyzer:
 
         return ccw(l1_a, l2_a, l2_b) != ccw(l1_b, l2_a, l2_b) and ccw(l1_a, l1_b, l2_a) != ccw(l1_a, l1_b, l2_b)
 
+    @staticmethod
+    def batch_ratio(st, en, ed1, ed2):
+        """
+        Calculates ratio in which the first line is cut by the second line it is intersecting
+        """
+        p_x = ((st[0] * en[1] - st[1] * en[0]) * (ed1[0] - ed2[0]) - (st[0] - en[0]) * (ed1[0] * ed2[1]  - ed1[1] * ed2[0])) / \
+            ((st[0] - en[0]) * (ed1[1] - ed2[1]) - (st[1] - en[1]) * (ed1[0] - ed2[0]))
+        p_y = ((st[0] * en[1] - st[1] * en[0]) * (ed1[1] - ed2[1]) - (st[1] - en[1]) * (ed1[0] * ed2[1]  - ed1[1] * ed2[0])) / \
+            ((st[0] - en[0]) * (ed1[1] - ed2[1]) - (st[1] - en[1]) * (ed1[0] - ed2[0]))
+
+        batch_dist = sqrt((st[0] - en[0]) * (st[0] - en[0]) + (st[1] - en[1]) * (st[1] - en[1]))
+        intersection_dist = sqrt((st[0] - p_x) * (st[0] - p_x) + (st[1] - p_y) * (st[1] - p_y))
+
+        return intersection_dist / batch_dist
+
     def __init__(
             self,
             geojson_file,
@@ -136,6 +151,7 @@ class Analyzer:
 
         # Declare lap variables
         self.lap_batches = []
+        self.lap_batch_ratios = []
         self.num_detected_laps = 0
         self.lap_average_speeds_kmh = []
         self.lap_times_s = []
@@ -365,8 +381,6 @@ class Analyzer:
         """
         Finds all batch ids that mark starts and ends of laps
         """
-        self.lap_batches = []
-
         # Run the appropriate lap detection
         if self.track_descriptor is not None:
             self.__detect_laps_track()
@@ -389,8 +403,10 @@ class Analyzer:
                     self.accumulated_batch_times_s[self.lap_batches[lap]])))
 
             self.lap_times_s.append(
-                self.accumulated_batch_times_s[self.lap_batches[lap + 1]] -
-                self.accumulated_batch_times_s[self.lap_batches[lap]])
+                self.batch_times_s[self.lap_batches[lap]] * (1.0 - self.lap_batch_ratios[lap]) +
+                self.accumulated_batch_times_s[self.lap_batches[lap + 1] - 1] -
+                self.accumulated_batch_times_s[self.lap_batches[lap]] +
+                self.batch_times_s[self.lap_batches[lap + 1]] * self.lap_batch_ratios[lap + 1])
 
         if self.verbose:
             print('lap #, time sec and avg speed kmh')
@@ -402,7 +418,9 @@ class Analyzer:
         if self.track_descriptor is not None and len(self.track_descriptor.sector_lines) > 0:
             # Find all batches on sector edges
             sector_batches = [[] for _ in range(self.num_detected_laps)]
+            sector_batch_ratios = [[] for _ in range(self.num_detected_laps)]
             sector_batches[0].append(self.lap_batches[0])
+            sector_batch_ratios[0].append(self.lap_batch_ratios[0])
             sector_lines = list(self.track_descriptor.sector_lines) + [self.track_descriptor.start_line]
             for lap_id in range(self.num_detected_laps):
                 for sector_id in range(len(sector_lines)):
@@ -414,17 +432,26 @@ class Analyzer:
                             self.batch_geo_locations[batch_id + 1]):
                         batch_id += 1
                     sector_batches[lap_id].append(batch_id)
+                    sector_batch_ratios[lap_id].append(
+                        Analyzer.batch_ratio(
+                            self.batch_geo_locations[batch_id],
+                            self.batch_geo_locations[batch_id + 1],
+                            sector_lines[sector_id][:2],
+                            sector_lines[sector_id][2:]))
                 assert sector_batches[lap_id][-1] == self.lap_batches[lap_id + 1], f'lapping batches not aligned: {batch_id - 1}, {self.lap_batches[lap_id + 1]}'
                 if lap_id < self.num_detected_laps - 1:
                     sector_batches[lap_id + 1].append(sector_batches[lap_id][-1])
+                    sector_batch_ratios[lap_id + 1].append(sector_batch_ratios[lap_id][-1])
 
             # Calculate sector times using sector batches
             self.sector_times_s = np.zeros((len(sector_lines) + 1, self.num_detected_laps + 1))
             for lap_id in range(self.num_detected_laps):
                 for sector_id in range(len(sector_lines)):
                     self.sector_times_s[sector_id, lap_id] = \
-                        self.accumulated_batch_times_s[sector_batches[lap_id][sector_id + 1]] - \
-                            self.accumulated_batch_times_s[sector_batches[lap_id][sector_id]]
+                        self.batch_times_s[sector_batches[lap_id][sector_id]] * (1.0 - sector_batch_ratios[lap_id][sector_id]) + \
+                        self.accumulated_batch_times_s[sector_batches[lap_id][sector_id + 1] - 1] - \
+                        self.accumulated_batch_times_s[sector_batches[lap_id][sector_id]] + \
+                        self.batch_times_s[sector_batches[lap_id][sector_id + 1]] * sector_batch_ratios[lap_id][sector_id + 1]
             # Extract the best times per sector to an additional column
             self.sector_times_s[:-1, -1] = np.min(self.sector_times_s[:-1, :-1], axis=1)
             # Aggregate total lap times to an additional  row
@@ -432,7 +459,7 @@ class Analyzer:
 
             # Ensure lap time consistency
             for lap_id in range(self.num_detected_laps):
-                assert self.sector_times_s[-1, lap_id] == self.lap_times_s[lap_id], f'lap times not consistent: {self.sector_times_s[-1, lap_id]}, {self.lap_times_s[lap_id]}'
+                assert abs(self.sector_times_s[-1, lap_id] - self.lap_times_s[lap_id]) < 1e-06, f'lap times not consistent: {self.sector_times_s[-1, lap_id]}, {self.lap_times_s[lap_id]}'
 
             np.save(os.path.join(self.out_directory, 'sectors.npy'), self.sector_times_s, allow_pickle=False)
 
@@ -460,6 +487,11 @@ class Analyzer:
                     self.batch_geo_locations[batch_id],
                     self.batch_geo_locations[batch_id + 1]):
                 self.lap_batches.append(batch_id)
+                self.lap_batch_ratios.append(Analyzer.batch_ratio(
+                    self.batch_geo_locations[batch_id],
+                    self.batch_geo_locations[batch_id + 1],
+                    self.track_descriptor.start_line[:2],
+                    self.track_descriptor.start_line[2:]))
 
     def __detect_laps_no_track(self):
         """
@@ -499,7 +531,9 @@ class Analyzer:
                             self.batch_geo_locations[curr_batch]) < self.lap_detection_min_distance_m:
                                 # Add both batches marking the start and the end of the first lap
                                 self.lap_batches.append(possible_first_batch)
+                                self.lap_batch_ratios.append(0)
                                 self.lap_batches.append(curr_batch)
+                                self.lap_batch_ratios.append(0)
                                 # Since a lap has been completed just, we can skip min possible lap time
                                 curr_batch = batch_min_lap_time_away_from(self.accumulated_batch_times_s[curr_batch])
 
@@ -516,6 +550,7 @@ class Analyzer:
 
                         # Add just the end of this lap to the list of lap batches
                         self.lap_batches.append(curr_batch)
+                        self.lap_batch_ratios.append(0)
                         # Skip min lap time again
                         curr_batch = batch_min_lap_time_away_from(self.accumulated_batch_times_s[curr_batch])
 
@@ -726,7 +761,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('geojson_file', type=str, help='Path to a file containing driving geojson data')
     parser.add_argument('out_directory', type=str, help='Directory where output should be stored')
-    parser.add_argument('--track_descriptor', '-d', type=str, help='Path to the file describing the track')
+    parser.add_argument('--track_descriptor', '-t', type=str, help='Path to the file describing the track')
     args = parser.parse_args()
 
     track_descriptor = None
