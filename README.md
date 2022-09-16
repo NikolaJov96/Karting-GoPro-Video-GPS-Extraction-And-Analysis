@@ -51,3 +51,5 @@ Example `geojson` file created by the extractor is in `SampleData` and it produc
 When compared with another driver's run, the following comparison is generated:
 
 ![Per sector driver comparison](SampleData/drivers_sector_comparison.png)
+
+More geojson examples can be found in `SampleData/other_runs/`, and more generated outputs can be found in `generated/`.
