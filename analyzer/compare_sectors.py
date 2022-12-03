@@ -5,12 +5,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def main(out_directory, sector_files):
+def main():
     """
     Generates a table comparing best sector times between two drivers
     """
-    if not os.path.isdir(out_directory):
-        os.mkdir(out_directory)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('out_directory', type=str, help='Path to the output directory')
+    parser.add_argument('first_sector_file', type=str, help='Path to the first sector time description file')
+    parser.add_argument('second_sector_file', type=str,  help='Path to the second sector time description file')
+    args = parser.parse_args()
+
+    sector_files = [args.first_sector_file, args.second_sector_file]
+
+    if not os.path.isdir(args.out_directory):
+        os.mkdir(args.out_directory)
 
     num_sectors = np.load(sector_files[0]).shape[0] - 1
     num_drivers = len(sector_files)
@@ -49,14 +57,8 @@ def main(out_directory, sector_files):
         loc='center'
     )
     fig.tight_layout()
-    fig.savefig(os.path.join(out_directory, 'drivers_sector_comparison.png'))
+    fig.savefig(os.path.join(args.out_directory, 'drivers_sector_comparison.png'))
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('out_directory', type=str, help='Path to the output directory')
-    parser.add_argument('first_sector_file', type=str, help='Path to the first sector time description file')
-    parser.add_argument('second_sector_file', type=str,  help='Path to the second sector time description file')
-    args = parser.parse_args()
-
-    main(args.out_directory, [args.first_sector_file, args.second_sector_file])
+    main()

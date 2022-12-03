@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import Normalize
 
-from trackDescriptor import TrackDescriptor
+from track_descriptor import TrackDescriptor
 
 
 class Analyzer:
