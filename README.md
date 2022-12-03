@@ -52,4 +52,4 @@ When compared with another driver's run, the following comparison is generated:
 
 ![Per sector driver comparison](sample_data/drivers_sector_comparison.png)
 
-More geojson examples can be found in `/sample_data/other_runs`, and more generated outputs can be found in `/generated`.
+More geojson examples and generated outputs from my drives can be found in the `/personal_runs` directory.
